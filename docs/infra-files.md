@@ -1,0 +1,106 @@
+# Infrastructure Files
+
+Explanation of each Terraform file in this project and how they connect.
+
+---
+
+## `providers.tf`
+
+Declares the Terraform version requirement (`>= 1.5`) and two providers:
+
+- **`oracle/oci ~> 6.0`** — the main OCI provider used to create the database
+- **`hashicorp/random ~> 3.6`** — declared but available if random values are needed later
+
+Configures the OCI provider with the five auth values that come from `terraform.tfvars` (tenancy, user, fingerprint, key path, region).
+
+---
+
+## `variables.tf`
+
+Defines every input the project accepts, grouped into four sections:
+
+| Section | Key variables |
+|---|---|
+| OCI Auth | `tenancy_ocid`, `user_ocid`, `fingerprint`, `private_key_path`, `region` |
+| Project | `project_name`, `environment` (used as naming prefix) |
+| Database | `adb_name`, `adb_admin_password`, `adb_mongo_username`, `adb_mongo_password`, `is_free_tier`, `adb_ecpu_count`, `adb_storage_gb` |
+| Network / App | `allowed_cidrs`, `mongo_db_name` |
+
+Only two variables have no defaults and are always required: `adb_admin_password` and `adb_mongo_password` (both marked `sensitive = true`).
+
+---
+
+## `main.tf`
+
+Contains **only `locals`** — no resources. Builds computed values used across the project:
+
+- `name_prefix` — e.g. `dividend-portfolio-dev`, used in resource display names
+- `common_tags` — freeform tags applied to the ADB
+- `adb_mongo_host` — assembles the public MongoDB API hostname: `<adb_name>.adb.<region>.oraclecloud.com`
+- `mongo_uri` / `mongo_uri_with_password` — the full Mongoose connection string with all required query parameters
+
+---
+
+## `database.tf`
+
+The core file — two resources:
+
+### `oci_database_autonomous_database.adb`
+
+Creates the Oracle ATP instance. The critical settings:
+
+| Setting | Value | Why |
+|---|---|---|
+| `db_workload` | `OLTP` | Selects ATP — the only workload type that exposes the MongoDB API |
+| `is_mtls_connection_required` | `false` | Plain TLS mode, no wallet download needed for Mongoose |
+| `whitelisted_ips` | `var.allowed_cidrs` | IP allowlist — the only network control (no VCN) |
+| `is_free_tier` | `true` (default) | 2 ECPU, 20 GB at no cost |
+
+### `null_resource.create_mongo_user`
+
+Runs after the ADB is provisioned. A `local-exec` bash script that:
+
+1. Calls `oci db autonomous-database generate-wallet` to download a temporary wallet
+2. Uses that wallet with `sqlplus` to run `CREATE USER` + `GRANT` statements for the app user
+3. Gracefully exits with a warning (no hard failure) if OCI CLI or `sqlplus` is not installed
+
+If this step is skipped, use the manual fallback in `outputs.tf`.
+
+---
+
+## `outputs.tf`
+
+Exposes connection details after `terraform apply`:
+
+| Output | Notes |
+|---|---|
+| `adb_id`, `adb_state`, `adb_display_name` | Basic ADB info |
+| `mongodb_api_host` | Hostname only |
+| `mongodb_api_port` | Always `27017` |
+| `mongo_uri_template` | URI with `$MONGO_PASSWORD` placeholder (safe to print) |
+| `mongo_uri_full` | Full URI with password — marked `sensitive`, use `terraform output -raw mongo_uri_full` |
+| `nestjs_env_snippet` | Ready-to-paste `.env` block for the NestJS app |
+| `manual_user_sql` | SQL to run in OCI Console if the provisioner was skipped |
+
+---
+
+## `terraform.tfvars.example`
+
+A template to copy to `terraform.tfvars` (which is gitignored). Contains all variables with example values and inline comments explaining each one.
+
+---
+
+## How the files connect
+
+```
+terraform.tfvars
+      │
+      ▼
+variables.tf  ──→  main.tf (locals / connection string)
+      │                    │
+      ▼                    ▼
+providers.tf       database.tf (ADB + user provisioner)
+                           │
+                           ▼
+                       outputs.tf  ──→  NestJS .env
+```
