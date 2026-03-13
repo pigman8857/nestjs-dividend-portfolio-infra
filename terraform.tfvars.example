@@ -1,0 +1,52 @@
+# ── terraform.tfvars.example ────────────────────────────────────────────────────
+# Copy to terraform.tfvars, fill in your values, then run:
+#   terraform init
+#   terraform plan
+#   terraform apply
+#
+# NEVER commit terraform.tfvars to git — it contains secrets.
+# Add terraform.tfvars to .gitignore.
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ── OCI Auth (from ~/.oci/config or OCI Console → Profile → API Keys) ──────────
+tenancy_ocid     = "ocid1.tenancy.oc1..aaaa..."
+user_ocid        = "ocid1.user.oc1..aaaa..."
+fingerprint      = "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"
+private_key_path = "~/.oci/oci_api_key.pem"
+region           = "ap-singapore-1"   # change to your nearest region
+
+# ── Compartment ────────────────────────────────────────────────────────────────
+# Use the root compartment OCID or create a dedicated one in OCI Console.
+compartment_ocid = "ocid1.compartment.oc1..aaaa..."
+
+# ── Project ────────────────────────────────────────────────────────────────────
+project_name = "dividend-portfolio"
+environment  = "dev"
+
+# ── Autonomous Database ────────────────────────────────────────────────────────
+adb_name = "dividenddev"   # max 14 alphanumeric chars, no hyphens
+
+# ADB ADMIN password — complexity rules:
+#   12-30 chars, ≥1 uppercase, ≥1 lowercase, ≥1 digit, ≥1 special char
+adb_admin_password = "AdminP@ss123!"
+
+# App user that Mongoose will authenticate as via the MongoDB API
+adb_mongo_username = "mongoapp"
+adb_mongo_password = "MongoP@ss123!"
+
+# ── Free Tier ─────────────────────────────────────────────────────────────────
+# true  → Always Free (2 ECPU, 20 GB) — good for solo dev/test
+# false → Paid tier, uses adb_ecpu_count and adb_storage_gb below
+is_free_tier   = true
+adb_ecpu_count = 2     # ignored when is_free_tier = true
+adb_storage_gb = 20    # ignored when is_free_tier = true (capped at 20 GB)
+
+# ── Network access ─────────────────────────────────────────────────────────────
+# Restrict to your own public IP for better security.
+# Find your IP: curl -s https://checkip.amazonaws.com
+# Example single IP:  ["203.0.113.10/32"]
+# Multiple IPs:       ["203.0.113.10/32", "198.51.100.5/32"]
+allowed_cidrs = ["0.0.0.0/0"]   # ← tighten this before sharing the environment
+
+# ── Application ────────────────────────────────────────────────────────────────
+mongo_db_name = "nestjs_dividend_portfolio"
