@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Provisions an Oracle Autonomous Database (ATP) on OCI with its MongoDB-compatible API enabled, so the [nestjs-dividend-portfolio](https://github.com/pigman8857/nestjs-dividend-portfolio) NestJS/Mongoose app can connect to it without code changes. Development environment only; uses OCI Always Free tier by default.
 
+Remote repository: https://github.com/pigman8857/nestjs-dividend-portfolio-infra
+
 ## Common commands
 
 ```bash
@@ -56,6 +58,15 @@ adb_admin_password, adb_mongo_password
 `adb_name` must be alphanumeric, start with a letter, max 14 characters (no hyphens — it becomes part of the DNS hostname and the Oracle DB_NAME).
 
 Password rules for both `*_password` vars: 12–30 chars, must include uppercase, lowercase, digit, and special character.
+
+## Git workflow
+
+`terraform.tfvars` and `.claude/` are gitignored — never stage them. When pushing, `gh auth setup-git` is required first if HTTPS credentials are not cached:
+
+```bash
+gh auth setup-git
+git push
+```
 
 ## Manual DB user fallback
 
