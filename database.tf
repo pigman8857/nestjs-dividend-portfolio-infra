@@ -36,7 +36,7 @@ resource "oci_database_autonomous_database" "adb" {
   is_free_tier             = var.is_free_tier
   compute_model            = "ECPU"
   compute_count            = var.is_free_tier ? 2 : var.adb_ecpu_count
-  data_storage_size_in_gbs = var.adb_storage_gb
+  data_storage_size_in_tbs = var.is_free_tier ? null : ceil(var.adb_storage_gb / 1024)
 
   # ── Network access ─────────────────────────────────────────────────────────
   # PUBLIC access with an ACL (IP allowlist).
