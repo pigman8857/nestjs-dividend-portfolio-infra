@@ -30,7 +30,7 @@ Single-file-per-concern layout — no modules:
 - **`main.tf`** — `locals` block that assembles the MongoDB connection string and name prefix; no resources here
 - **`database.tf`** — two resources:
   1. `oci_database_autonomous_database.adb` — the ATP instance
-  2. `null_resource.create_mongo_user` — `local-exec` provisioner that POSTs SQL to the ORDS REST API (`/ords/admin/_/sql`) via `curl` to create the app DB user and enable the ORDS schema; gracefully no-ops if `curl` is missing
+  2. `null_resource.create_mongo_user` — `local-exec` provisioner that POSTs SQL to the ORDS REST API (`/ords/admin/_/sql`) via `curl` to create the app DB user and enable the ORDS schema; polls ORDS readiness before executing (up to 10 min); exits 1 on SQL failure so Terraform surfaces a real error; gracefully no-ops if `curl` is missing
 - **`outputs.tf`** — connection host, full URI (sensitive), `.env` snippet, and the manual user-creation SQL as a fallback
 
 ## Key design decisions
@@ -85,7 +85,7 @@ git push
 
 ## Manual DB user fallback
 
-If `null_resource.create_mongo_user` is skipped (no `curl`, or ORDS not yet ready), run `terraform output manual_user_sql` and execute the **entire block in one single Run Script (F5) execution** in **OCI Console → Autonomous Database → Database Actions → SQL** signed in as ADMIN.
+If `null_resource.create_mongo_user` is skipped (no `curl`), run `terraform output manual_user_sql` and execute the **entire block in one single Run Script (F5) execution** in **OCI Console → Autonomous Database → Database Actions → SQL** signed in as ADMIN.
 
 The user needs: `CREATE SESSION`, `SODA_APP`, `CREATE TABLE`, `CREATE SEQUENCE`, `CREATE VIEW`, `QUOTA UNLIMITED ON DATA`, and `ORDS.ENABLE_SCHEMA`.
 
