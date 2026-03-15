@@ -165,10 +165,12 @@ mongoOracleInfra/
 ├── outputs.tf                # Connection info, .env snippet, manual SQL
 ├── terraform.tfvars.example  # Copy → terraform.tfvars and fill in
 ├── docs/
-│   ├── infra-files.md        # Per-file explanation of what each file does
-│   ├── how-to-set-up-v1.md  # End-to-end setup guide
-│   ├── issue-fix-summary-v1.md  # Issues found during integration testing
-│   └── worklogs/             # Dated work logs
+│   ├── infra-files.md                         # Per-file explanation of what each file does
+│   ├── how-to-set-up-v1.md                   # End-to-end setup guide
+│   ├── issue-fix-summaries/
+│   │   ├── issue-fix-summary-01.md           # Issues from initial integration session
+│   │   └── issue-fix-summary-02.md           # Issues from second-round automation test
+│   └── worklogs/                              # Dated work logs
 └── .gitignore                # Excludes *.tfvars, state files
 ```
 
