@@ -122,7 +122,7 @@ MONGO_DB_NAME=mongoapp
 
 ## Manual DB user fallback
 
-If the `curl`-based provisioner failed (e.g. curl not installed, or ORDS not yet ready), create the user manually:
+If the `curl`-based provisioner was skipped (e.g. curl not installed), create the user manually:
 
 1. Run: `terraform output manual_user_sql`
 2. Copy the SQL output

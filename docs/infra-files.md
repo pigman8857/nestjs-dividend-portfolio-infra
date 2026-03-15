@@ -66,10 +66,11 @@ A `lifecycle { ignore_changes = [compute_count] }` block prevents Terraform from
 Runs after the ADB is provisioned. A `local-exec` bash script that uses **`curl`** to POST SQL to the ADB's ORDS REST API endpoint (`/ords/admin/_/sql`) — no OCI CLI or sqlplus required.
 
 The script:
-1. Constructs the SQL URL from `connection_urls[0].ords_url` (read directly from the provisioned resource)
-2. POSTs the `CREATE USER` + `GRANT` statements as ADMIN via HTTP Basic auth
-3. POSTs a second request to call `ORDS.ENABLE_SCHEMA` — required for the MongoDB wire protocol to accept connections from this user
-4. Gracefully exits with a warning (no hard failure) if `curl` is not installed
+1. Exits with a warning (no hard failure) if `curl` is not installed — operator must use the manual fallback
+2. Polls the ORDS endpoint with `SELECT 1 FROM DUAL` every 30s until it returns HTTP 200 — ORDS starts after the ADB is `AVAILABLE` and needs extra time to boot; exits 1 if ORDS is not ready after 20 retries (10 minutes)
+3. Calls `run_sql` to POST the `CREATE USER` + `GRANT` + `ALTER USER QUOTA` statements as ADMIN via HTTP Basic auth
+4. Calls `run_sql` again to POST the `ORDS.ENABLE_SCHEMA` PL/SQL block — the block ends with `/` on its own line, which is the Oracle signal to execute a buffered PL/SQL anonymous block; without it ORDS receives the block but never executes it
+5. `run_sql` captures the ORDS response body and scans it for `"errorCode"` (non-zero) or `ORA-XXXXX` — exits 1 on any SQL-level failure; ORDS always returns HTTP 200 so checking the HTTP status code alone is not sufficient
 
 Granted privileges:
 - `CREATE SESSION` — basic login
