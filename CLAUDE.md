@@ -100,4 +100,6 @@ The user needs: `CREATE SESSION`, `SODA_APP`, `CREATE TABLE`, `CREATE SEQUENCE`,
 
 ## Issue history
 
-See `docs/issue-fix-summary-v1.md` for a record of all issues found during initial integration testing (2026-03-15) and how they were resolved.
+See `docs/issue-fix-summaries/` for a record of issues found during integration testing and how they were resolved:
+- `issue-fix-summary-01.md` — initial session (2026-03-15): hostname, user creation, ORDS schema, invalid privilege, wrong DB name, compute_count drift
+- `issue-fix-summary-02.md` — second-round automation fixes (2026-03-15): missing PL/SQL `/` terminator, silent SQL failures, retry loop fallthrough
