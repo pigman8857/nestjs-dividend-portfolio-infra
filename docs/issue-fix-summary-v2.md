@@ -28,7 +28,15 @@ BEGIN
 END;
 ```
 
-In Oracle's SQL execution model (SQL*Plus, ORDS REST API), a PL/SQL anonymous block is not executed until a `/` appears on its own line after `END;`. Without it, ORDS buffered the statement but never executed it — silently, with no error.
+**Background — Oracle PL/SQL block termination**
+In Oracle's SQL execution environments (SQL*Plus, SQLcl, ORDS REST API), there are two types of statements:
+
+- **DDL/DML** — single statements that end with `;` and execute immediately (`CREATE USER`, `GRANT`, etc.)
+- **PL/SQL anonymous blocks** — multi-line procedural code wrapped in `BEGIN...END;`. The `;` after `END` closes the block syntax but does **not** trigger execution. Oracle waits for a `/` on its own line as the unambiguous signal to execute the buffered block.
+
+The reason `;` cannot trigger execution for PL/SQL blocks is that blocks contain many `;` inside them (one per statement). If `;` triggered execution, Oracle would not know whether the block was finished or still being written. `/` is unambiguous — it always means "execute whatever is buffered now".
+
+Without `/`, ORDS received the block, buffered it, waited for the terminator, never got it, and returned HTTP 200 (the request was well-formed) — but executed nothing, silently.
 
 The manual SQL that worked in OCI Console included the `/`. The provisioner did not.
 
