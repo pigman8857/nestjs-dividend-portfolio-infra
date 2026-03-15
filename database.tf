@@ -103,8 +103,46 @@ resource "null_resource" "create_mongo_user" {
         exit 0
       fi
 
-      echo "==> Creating DB user '$${USERNAME}' via ORDS REST API..."
-      USER_SQL="CREATE USER $${USERNAME} IDENTIFIED BY \"$${PASSWORD}\";
+      echo "==> Waiting for ORDS to become ready..."
+      MAX_RETRIES=20
+      RETRY_INTERVAL=30
+      for i in $(seq 1 $MAX_RETRIES); do
+        HTTP_CODE=$(curl -s -o /dev/null -w "%%{http_code}" -X POST "$${SQL_URL}" \
+          -H "Content-Type: application/sql" \
+          --user "ADMIN:$${ADMIN_PASS}" \
+          --data-binary "SELECT 1 FROM DUAL;")
+        if [ "$${HTTP_CODE}" = "200" ]; then
+          echo "ORDS is ready."
+          break
+        fi
+        echo "  ORDS not ready (HTTP $${HTTP_CODE}), retrying in $${RETRY_INTERVAL}s... ($${i}/$${MAX_RETRIES})"
+        sleep $RETRY_INTERVAL
+      done
+
+      if [ "$${HTTP_CODE}" != "200" ]; then
+        echo "ERROR: ORDS did not become ready after $${MAX_RETRIES} attempts. Aborting."
+        exit 1
+      fi
+
+      run_sql() {
+        local desc="$1"
+        local sql="$2"
+        echo "==> $${desc}..."
+        RESPONSE=$(curl -s -X POST "$${SQL_URL}" \
+          -H "Content-Type: application/sql" \
+          --user "ADMIN:$${ADMIN_PASS}" \
+          --data-binary "$${sql}")
+        if echo "$${RESPONSE}" | grep -qiE '"errorCode":[^0]|ORA-[0-9]'; then
+          echo "ERROR: $${desc} failed. ORDS response:"
+          echo "$${RESPONSE}"
+          echo "Please run manually: terraform output manual_user_sql"
+          exit 1
+        fi
+        echo "    OK"
+      }
+
+      run_sql "Creating DB user '$${USERNAME}'" \
+        "CREATE USER $${USERNAME} IDENTIFIED BY \"$${PASSWORD}\";
 GRANT CREATE SESSION TO $${USERNAME};
 GRANT SODA_APP TO $${USERNAME};
 GRANT CREATE TABLE TO $${USERNAME};
@@ -112,18 +150,8 @@ GRANT CREATE SEQUENCE TO $${USERNAME};
 GRANT CREATE VIEW TO $${USERNAME};
 ALTER USER $${USERNAME} QUOTA UNLIMITED ON DATA;"
 
-      curl -sf -X POST "$${SQL_URL}" \
-        -H "Content-Type: application/sql" \
-        --user "ADMIN:$${ADMIN_PASS}" \
-        --data-binary "$${USER_SQL}" \
-        -o /dev/null || {
-          echo "WARNING: ORDS user-creation call failed."
-          echo "Please create the DB user manually: terraform output manual_user_sql"
-          exit 0
-        }
-
-      echo "==> Enabling ORDS schema for MongoDB API access..."
-      ORDS_SQL="BEGIN
+      run_sql "Enabling ORDS schema for MongoDB API access" \
+        "BEGIN
   ORDS.ENABLE_SCHEMA(
     p_enabled             => TRUE,
     p_schema              => '$${USERNAME}',
@@ -132,17 +160,8 @@ ALTER USER $${USERNAME} QUOTA UNLIMITED ON DATA;"
     p_auto_rest_auth      => TRUE
   );
   COMMIT;
-END;"
-
-      curl -sf -X POST "$${SQL_URL}" \
-        -H "Content-Type: application/sql" \
-        --user "ADMIN:$${ADMIN_PASS}" \
-        --data-binary "$${ORDS_SQL}" \
-        -o /dev/null || {
-          echo "WARNING: ORDS.ENABLE_SCHEMA call failed."
-          echo "Please run manually: terraform output manual_user_sql"
-          exit 0
-        }
+END;
+/"
 
       echo "==> Done. DB user '$${USERNAME}' created with MongoDB API access."
     BASH
