@@ -55,7 +55,7 @@ output "nestjs_env_snippet" {
     PORT=3000
 
     MONGO_URI=<run: terraform output -raw mongo_uri_full>
-    MONGO_DB_NAME=${var.mongo_db_name}
+    MONGO_DB_NAME=${var.adb_mongo_username}
   ENV
 }
 
@@ -74,9 +74,21 @@ output "manual_user_sql" {
     GRANT SODA_APP        TO "${upper(var.adb_mongo_username)}";
     GRANT CREATE TABLE    TO "${upper(var.adb_mongo_username)}";
     GRANT CREATE SEQUENCE TO "${upper(var.adb_mongo_username)}";
-    GRANT CREATE INDEX    TO "${upper(var.adb_mongo_username)}";
     GRANT CREATE VIEW     TO "${upper(var.adb_mongo_username)}";
     ALTER USER "${upper(var.adb_mongo_username)}" QUOTA UNLIMITED ON DATA;
     COMMIT;
+
+    -- Enable ORDS/MongoDB API access for the schema (required for MongoDB wire protocol)
+    BEGIN
+      ORDS.ENABLE_SCHEMA(
+        p_enabled             => TRUE,
+        p_schema              => '${upper(var.adb_mongo_username)}',
+        p_url_mapping_type    => 'BASE_PATH',
+        p_url_mapping_pattern => '${lower(var.adb_mongo_username)}',
+        p_auto_rest_auth      => TRUE
+      );
+      COMMIT;
+    END;
+    /
   SQL
 }

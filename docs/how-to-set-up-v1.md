@@ -43,35 +43,19 @@ Use the root compartment (same OCID as the tenancy), or create a dedicated one. 
 
 ## 5. Install tools
 
+Only **Terraform** and **curl** are required. `curl` is pre-installed on most Linux/macOS systems.
+
 ```bash
 # Terraform (required)
 sudo apt install terraform          # Debian/Ubuntu
 # brew install terraform            # macOS
-
-# OCI CLI (optional — needed for automatic DB user creation)
-bash -c "$(curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh)"
-
-# sqlplus (optional — same use case as OCI CLI)
-# Install Oracle Instant Client:
-# https://www.oracle.com/database/technologies/instant-client.html
 ```
 
-> If OCI CLI or sqlplus are not installed, the DB user creation step will be skipped.
-> See [Manual DB user fallback](#manual-db-user-fallback) below.
+> OCI CLI and sqlplus are **not needed**. The DB user is created automatically via the ORDS REST API using `curl`.
 
 ---
 
-## 6. Configure OCI CLI (optional but recommended)
-
-```bash
-oci setup config
-# Prompts for: tenancy OCID, user OCID, fingerprint, key path, region
-# Writes to: ~/.oci/config
-```
-
----
-
-## 7. Clone and configure this project
+## 6. Clone and configure this project
 
 ```bash
 git clone https://github.com/pigman8857/nestjs-dividend-portfolio-infra
@@ -98,7 +82,7 @@ Password rules for both `*_password` fields: 12–30 characters, must include at
 
 ---
 
-## 8. Deploy
+## 7. Deploy
 
 ```bash
 terraform init      # download OCI + random providers (~1 min)
@@ -106,32 +90,56 @@ terraform plan      # preview — should show 2 resources to create
 terraform apply     # provision ADB (~3-5 min to reach AVAILABLE state)
 ```
 
+`terraform apply` automatically:
+1. Creates the ADB (ATP, Always Free, MongoDB API on port 27017)
+2. Creates the `MONGOAPP` Oracle user with all required grants via the ORDS REST API
+3. Enables the ORDS schema so the MongoDB wire protocol accepts connections
+
 ---
 
-## 9. Get the connection string
+## 8. Configure the NestJS app
 
 ```bash
 terraform output -raw mongo_uri_full
 ```
 
-Paste the result into the NestJS app's `.env` file as `MONGO_URI`.
-
-For the full `.env` block:
+Paste the result into the NestJS app's `.env` as `MONGO_URI`. For the full `.env` block:
 
 ```bash
 terraform output nestjs_env_snippet
 ```
 
+The required `.env` values are:
+
+```bash
+MONGO_URI=mongodb://mongoapp:<password>@<host>:27017/mongoapp?authMechanism=PLAIN&authSource=$external&ssl=true&retryWrites=false&loadBalanced=true
+MONGO_DB_NAME=mongoapp
+```
+
+> **Important:** `MONGO_DB_NAME` must be `mongoapp` (the Oracle username), not `nestjs_dividend_portfolio`. Oracle ADB requires the MongoDB database name to match the authenticated user's schema name.
+
 ---
 
 ## Manual DB user fallback
 
-If OCI CLI or sqlplus were not installed when `terraform apply` ran, the DB user was not created automatically. Fix it manually:
+If the `curl`-based provisioner failed (e.g. curl not installed, or ORDS not yet ready), create the user manually:
 
 1. Run: `terraform output manual_user_sql`
 2. Copy the SQL output
 3. Go to **OCI Console → Autonomous Database → your DB → Database Actions → SQL**
-4. Sign in as **ADMIN** and paste + run the SQL
+4. Sign in as **ADMIN** and run the entire SQL block in **one single execution** (F5 / Run Script)
+
+> Run everything in one shot — do not split the statements across multiple executions, as the SQL Worksheet session may reset the user between runs.
+
+---
+
+## Teardown
+
+```bash
+terraform destroy
+```
+
+Removes the ADB and all data. The OCI Always Free quota is restored after termination.
 
 ---
 
@@ -149,8 +157,11 @@ terraform.tfvars  ←  fill in all OCIDs + passwords
         ▼
 terraform apply
   ├─ creates ADB (ATP, Always Free, MongoDB API on :27017)
-  └─ creates DB user MONGOAPP with required grants
+  └─ creates MONGOAPP user via curl → ORDS REST API
+        ├─ GRANT CREATE SESSION, SODA_APP, CREATE TABLE, CREATE SEQUENCE, CREATE VIEW
+        └─ ORDS.ENABLE_SCHEMA (required for MongoDB wire protocol)
         │
         ▼
 terraform output -raw mongo_uri_full  →  NestJS .env MONGO_URI
+MONGO_DB_NAME=mongoapp                →  NestJS .env MONGO_DB_NAME
 ```

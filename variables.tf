@@ -120,14 +120,3 @@ variable "allowed_cidrs" {
   default = ["0.0.0.0/0"]
 }
 
-# ── Application ────────────────────────────────────────────────────────────────
-
-variable "mongo_db_name" {
-  description = <<-EOT
-    MongoDB database (Oracle schema) name used by the NestJS app.
-    Maps to MONGO_DB_NAME in the NestJS .env file.
-    Oracle normalises it to uppercase internally.
-  EOT
-  type    = string
-  default = "nestjs_dividend_portfolio"
-}

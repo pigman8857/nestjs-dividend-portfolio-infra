@@ -51,23 +51,31 @@ resource "oci_database_autonomous_database" "adb" {
   license_model = "LICENSE_INCLUDED"
 
   freeform_tags = local.common_tags
+
+  # OCI manages compute_count on Always Free databases — ignore drift.
+  lifecycle {
+    ignore_changes = [compute_count]
+  }
 }
 
 # ── App DB user ────────────────────────────────────────────────────────────────
 #
-# Oracle ADB does not natively expose a Terraform resource to create DB users,
-# so we use a null_resource + local-exec to call the OCI CLI after the ADB
-# becomes AVAILABLE.
+# Oracle ADB does not expose a Terraform resource to create DB users, so we
+# use a null_resource + local-exec that POSTs SQL to the ORDS REST API
+# (available on the ADB's public HTTPS endpoint — no OCI CLI or sqlplus needed).
 #
 # The user is granted:
-#   - CREATE SESSION                → basic login
-#   - SODA_APP                      → SODA/MongoDB API collections
-#   - CREATE TABLE, CREATE INDEX... → schema DDL for Mongoose models
+#   - CREATE SESSION   → basic login
+#   - SODA_APP         → SODA/MongoDB API collections
+#   - CREATE TABLE     → schema DDL for Mongoose models
+#   - CREATE SEQUENCE  → auto-increment fields
+#   - CREATE VIEW      → views used by some Mongoose plugins
 #
-# Prerequisites on the machine running Terraform:
-#   - OCI CLI installed and configured (oci setup config)
-#   - SQLcl or sqlplus (for the SQL block below) — OR remove this resource and
-#     create the user manually after the first apply.
+# ORDS.ENABLE_SCHEMA is called after the grants — required for the MongoDB
+# wire protocol to accept connections from this user.
+#
+# Fallback: if curl is unavailable, run 'terraform output manual_user_sql'
+# and execute the result in OCI Console → Database Actions → SQL (as ADMIN).
 # ──────────────────────────────────────────────────────────────────────────────
 
 resource "null_resource" "create_mongo_user" {
@@ -79,51 +87,64 @@ resource "null_resource" "create_mongo_user" {
   }
 
   provisioner "local-exec" {
-    # Downloads the wallet to a temp dir, then runs the SQL via sqlplus.
-    # If sqlplus is not available, see outputs.tf for the manual SQL to run.
     interpreter = ["/bin/bash", "-c"]
     command     = <<-BASH
       set -e
-      WALLET_DIR=$(mktemp -d)
-      ADB_ID="${oci_database_autonomous_database.adb.id}"
+      ORDS_BASE="${oci_database_autonomous_database.adb.connection_urls[0].ords_url}"
+      SQL_URL="$${ORDS_BASE}admin/_/sql"
       USERNAME="${upper(var.adb_mongo_username)}"
+      USERNAME_LOWER="${lower(var.adb_mongo_username)}"
       PASSWORD="${var.adb_mongo_password}"
       ADMIN_PASS="${var.adb_admin_password}"
-      DB_NAME="${var.adb_name}"
-      REGION="${var.region}"
 
-      echo "==> Downloading ADB wallet..."
-      oci db autonomous-database generate-wallet \
-        --autonomous-database-id "$ADB_ID" \
-        --password "WalletP@ss1" \
-        --file "$WALLET_DIR/wallet.zip" \
-        --region "$REGION" 2>/dev/null || {
-          echo "WARNING: Could not download wallet via OCI CLI."
-          echo "Please create the DB user manually — see outputs for SQL."
+      if ! command -v curl &>/dev/null; then
+        echo "WARNING: curl not found. Please create the DB user manually:"
+        echo "  terraform output manual_user_sql"
+        exit 0
+      fi
+
+      echo "==> Creating DB user '$${USERNAME}' via ORDS REST API..."
+      USER_SQL="CREATE USER $${USERNAME} IDENTIFIED BY \"$${PASSWORD}\";
+GRANT CREATE SESSION TO $${USERNAME};
+GRANT SODA_APP TO $${USERNAME};
+GRANT CREATE TABLE TO $${USERNAME};
+GRANT CREATE SEQUENCE TO $${USERNAME};
+GRANT CREATE VIEW TO $${USERNAME};
+ALTER USER $${USERNAME} QUOTA UNLIMITED ON DATA;"
+
+      curl -sf -X POST "$${SQL_URL}" \
+        -H "Content-Type: application/sql" \
+        --user "ADMIN:$${ADMIN_PASS}" \
+        --data-binary "$${USER_SQL}" \
+        -o /dev/null || {
+          echo "WARNING: ORDS user-creation call failed."
+          echo "Please create the DB user manually: terraform output manual_user_sql"
           exit 0
         }
 
-      unzip -q "$WALLET_DIR/wallet.zip" -d "$WALLET_DIR/wallet"
-      export TNS_ADMIN="$WALLET_DIR/wallet"
-      TNS_ALIAS=$(grep -o "${upper(var.adb_name)}_[a-z]*" "$WALLET_DIR/wallet/tnsnames.ora" | head -1)
+      echo "==> Enabling ORDS schema for MongoDB API access..."
+      ORDS_SQL="BEGIN
+  ORDS.ENABLE_SCHEMA(
+    p_enabled             => TRUE,
+    p_schema              => '$${USERNAME}',
+    p_url_mapping_type    => 'BASE_PATH',
+    p_url_mapping_pattern => '$${USERNAME_LOWER}',
+    p_auto_rest_auth      => TRUE
+  );
+  COMMIT;
+END;"
 
-      echo "==> Creating Oracle DB user '$USERNAME' via sqlplus..."
-      sqlplus -s "ADMIN/$ADMIN_PASS@$TNS_ALIAS" <<SQL 2>/dev/null || {
-        echo "WARNING: sqlplus not found. Please run the user-creation SQL manually — see outputs."
-      }
-        CREATE USER "$USERNAME" IDENTIFIED BY "$PASSWORD";
-        GRANT CREATE SESSION TO "$USERNAME";
-        GRANT SODA_APP TO "$USERNAME";
-        GRANT CREATE TABLE TO "$USERNAME";
-        GRANT CREATE SEQUENCE TO "$USERNAME";
-        GRANT CREATE INDEX TO "$USERNAME";
-        GRANT CREATE VIEW TO "$USERNAME";
-        ALTER USER "$USERNAME" QUOTA UNLIMITED ON DATA;
-        COMMIT;
-        EXIT;
-      SQL
-      rm -rf "$WALLET_DIR"
-      echo "==> Done."
+      curl -sf -X POST "$${SQL_URL}" \
+        -H "Content-Type: application/sql" \
+        --user "ADMIN:$${ADMIN_PASS}" \
+        --data-binary "$${ORDS_SQL}" \
+        -o /dev/null || {
+          echo "WARNING: ORDS.ENABLE_SCHEMA call failed."
+          echo "Please run manually: terraform output manual_user_sql"
+          exit 0
+        }
+
+      echo "==> Done. DB user '$${USERNAME}' created with MongoDB API access."
     BASH
   }
 }

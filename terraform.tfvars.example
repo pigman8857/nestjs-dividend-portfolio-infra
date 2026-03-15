@@ -49,4 +49,5 @@ adb_storage_gb = 20    # ignored when is_free_tier = true (capped at 20 GB)
 allowed_cidrs = ["0.0.0.0/0"]   # ← tighten this before sharing the environment
 
 # ── Application ────────────────────────────────────────────────────────────────
-mongo_db_name = "nestjs_dividend_portfolio"
+# Note: MongoDB database name in the URI must equal the Oracle username.
+# MONGO_DB_NAME in the NestJS .env should match adb_mongo_username (default: "mongoapp").
