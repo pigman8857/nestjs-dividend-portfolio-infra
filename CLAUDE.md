@@ -30,7 +30,7 @@ Single-file-per-concern layout — no modules:
 - **`main.tf`** — `locals` block that assembles the MongoDB connection string and name prefix; no resources here
 - **`database.tf`** — two resources:
   1. `oci_database_autonomous_database.adb` — the ATP instance
-  2. `null_resource.create_mongo_user` — `local-exec` provisioner that downloads the wallet via OCI CLI and runs `sqlplus` to create the app DB user; gracefully no-ops if either tool is missing
+  2. `null_resource.create_mongo_user` — `local-exec` provisioner that POSTs SQL to the ORDS REST API (`/ords/admin/_/sql`) via `curl` to create the app DB user and enable the ORDS schema; gracefully no-ops if `curl` is missing
 - **`outputs.tf`** — connection host, full URI (sensitive), `.env` snippet, and the manual user-creation SQL as a fallback
 
 ## Key design decisions
@@ -41,8 +41,16 @@ Single-file-per-concern layout — no modules:
 
 **`whitelisted_ips`** — the only network control in place (no VCN). Intentionally simple for local dev testing. Tighten `allowed_cidrs` to your IP before sharing the environment.
 
+**Hostname is read from `connection_urls`, not constructed** — OCI assigns a tenancy-prefixed hostname (e.g. `G384A9A0B4990AA-DIVIDENDDEV.adb.ap-singapore-1.oraclecloudapps.com`) that cannot be predicted from `adb_name` alone. `main.tf` reads it from `connection_urls[0].mongo_db_url`.
+
+**MongoDB database name must equal the Oracle username** — Oracle ADB only permits a user to access their own schema via the MongoDB API. The URI database path and `MONGO_DB_NAME` in the NestJS `.env` must both be set to `adb_mongo_username` (default: `mongoapp`), not a separate db name.
+
+**`ORDS.ENABLE_SCHEMA` is required** — after creating the Oracle user, this must be called or the MongoDB wire protocol rejects all connections with "schema not enabled for ORDS".
+
+**`lifecycle { ignore_changes = [compute_count] }`** — OCI manages `compute_count` on Always Free instances and rejects any Terraform attempt to change it (403). This block prevents drift errors on `terraform apply`.
+
 **MongoDB connection string parameters** — all four are mandatory for OCI ADB:
-- `authMechanism=PLAIN` + `authSource=%24external` — Oracle uses PLAIN/LDAP auth, not MongoDB-native auth
+- `authMechanism=PLAIN` + `authSource=$external` — Oracle uses PLAIN/LDAP auth, not MongoDB-native auth
 - `retryWrites=false` — ADB MongoDB API does not support retryable writes
 - `loadBalanced=true` — required for ADB's multi-node routing
 
@@ -59,6 +67,13 @@ adb_admin_password, adb_mongo_password
 
 Password rules for both `*_password` vars: 12–30 chars, must include uppercase, lowercase, digit, and special character.
 
+## NestJS .env
+
+```bash
+MONGO_URI=<terraform output -raw mongo_uri_full>
+MONGO_DB_NAME=mongoapp   # must match adb_mongo_username — Oracle constraint
+```
+
 ## Git workflow
 
 `terraform.tfvars` and `.claude/` are gitignored — never stage them. When pushing, `gh auth setup-git` is required first if HTTPS credentials are not cached:
@@ -70,4 +85,19 @@ git push
 
 ## Manual DB user fallback
 
-If `null_resource.create_mongo_user` is skipped (no OCI CLI or `sqlplus`), run `terraform output manual_user_sql` and execute the result in **OCI Console → Autonomous Database → Database Actions → SQL** signed in as ADMIN. The user needs `CREATE SESSION`, `SODA_APP`, `CREATE TABLE/SEQUENCE/INDEX/VIEW`, and `QUOTA UNLIMITED ON DATA`.
+If `null_resource.create_mongo_user` is skipped (no `curl`, or ORDS not yet ready), run `terraform output manual_user_sql` and execute the **entire block in one single Run Script (F5) execution** in **OCI Console → Autonomous Database → Database Actions → SQL** signed in as ADMIN.
+
+The user needs: `CREATE SESSION`, `SODA_APP`, `CREATE TABLE`, `CREATE SEQUENCE`, `CREATE VIEW`, `QUOTA UNLIMITED ON DATA`, and `ORDS.ENABLE_SCHEMA`.
+
+> Do not split the SQL across multiple executions — the SQL Worksheet may reset the user between runs.
+
+## Known OCI constraints
+
+- `CREATE INDEX` is **not** a grantable Oracle privilege — index creation is implicit with `CREATE TABLE`
+- MongoDB database name in the URI **must equal** the Oracle schema/username
+- `ORDS.ENABLE_SCHEMA` **must** be called after user creation for the MongoDB API to work
+- ADB hostname format is `<TENANCY_PREFIX>-<ADB_NAME>.adb.<region>.oraclecloudapps.com` — not predictable from `adb_name` alone
+
+## Issue history
+
+See `docs/issue-fix-summary-v1.md` for a record of all issues found during initial integration testing (2026-03-15) and how they were resolved.

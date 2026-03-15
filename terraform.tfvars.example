@@ -28,11 +28,11 @@ adb_name = "dividenddev"   # max 14 alphanumeric chars, no hyphens
 
 # ADB ADMIN password — complexity rules:
 #   12-30 chars, ≥1 uppercase, ≥1 lowercase, ≥1 digit, ≥1 special char
-adb_admin_password = "AdminP@ss123!"
+adb_admin_password = "YourAdminPassword1"
 
 # App user that Mongoose will authenticate as via the MongoDB API
 adb_mongo_username = "mongoapp"
-adb_mongo_password = "MongoP@ss123!"
+adb_mongo_password = "YourMongoPassword1"
 
 # ── Free Tier ─────────────────────────────────────────────────────────────────
 # true  → Always Free (2 ECPU, 20 GB) — good for solo dev/test

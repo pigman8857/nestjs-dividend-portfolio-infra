@@ -74,8 +74,8 @@ private_key_path = "~/.oci/oci_api_key.pem"         # step 3
 region           = "ap-singapore-1"                 # home region from step 1
 compartment_ocid = "ocid1.compartment.oc1..aaaa..." # step 4
 
-adb_admin_password = "AdminP@ss123!"    # 12-30 chars, upper + lower + digit + special
-adb_mongo_password = "MongoP@ss123!"    # same complexity rules
+adb_admin_password = "YourAdminPassword1"    # 12-30 chars, upper + lower + digit + special
+adb_mongo_password = "YourMongoPassword1"    # same complexity rules
 ```
 
 Password rules for both `*_password` fields: 12–30 characters, must include at least one uppercase letter, one lowercase letter, one digit, and one special character.
