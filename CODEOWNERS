@@ -1,0 +1,15 @@
+# CODEOWNERS — nestjs-dividend-portfolio-infra
+
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything
+
+- @pigman8857
+
+# Terraform infrastructure
+
+\*.tf @pigman8857
+
+# Documentation
+
+docs/ @pigman8857
